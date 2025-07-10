@@ -1,4 +1,5 @@
 .DS_Store
 
 # dataset
-data/
+data/*.jsonl
+data/*.log
