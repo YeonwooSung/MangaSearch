@@ -52,5 +52,7 @@ EOF
 
 RUN chmod +x /docker-entrypoint-initdb.d/00-configure-postgres.sh
 
+EXPOSE 5432
+
 # 원래 사용자로 돌아가기
 USER postgres
