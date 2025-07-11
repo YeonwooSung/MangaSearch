@@ -3,3 +3,7 @@
 # dataset
 data/*.jsonl
 data/*.log
+
+# pycache
+__pycache__/
+**/__pycache__/
