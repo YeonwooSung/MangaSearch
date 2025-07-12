@@ -17,10 +17,12 @@ async def search_manga(params: SearchParams, db: AsyncSession = Depends(get_db))
     """Basic BM25 search for manga"""
     return await MangaCRUD.search_manga(db, params)
 
+
 @router.post("/advanced")
 async def advanced_search_manga(params: SearchParams, db: AsyncSession = Depends(get_db)):
     """Advanced search with filters using the database function"""
     return await MangaCRUD.advanced_search_manga(db, params)
+
 
 @router.get("/suggestions")
 async def get_search_suggestions(

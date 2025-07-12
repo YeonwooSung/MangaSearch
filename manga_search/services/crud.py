@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, insert, update, delete, text, and_, or_, func
+from sqlalchemy import select, insert, update, delete, text, and_, func
 from sqlalchemy.orm import selectinload
 from typing import Optional, Sequence, List, Dict, Any
 from decimal import Decimal
@@ -36,6 +36,7 @@ class MangaCRUD:
         
         return manga
 
+
     @staticmethod
     async def get_manga_list(
         db: AsyncSession, 
@@ -51,7 +52,7 @@ class MangaCRUD:
         """Get list of manga with optional filters - fixed for async"""
         # 🔧 Simplified query without explicit selectinload
         query = select(Manga)
-        
+
         conditions = []
         if status:
             conditions.append(Manga.status == status)
@@ -257,14 +258,16 @@ class MangaCRUD:
         if tag_ids:
             await MangaCRUD._add_manga_tags(db, manga_id, tag_ids)
 
+
     # Search methods remain the same...
     @staticmethod
     async def search_manga(db: AsyncSession, params: SearchParams) -> List[MangaSearchResult]:
         """Basic BM25 search using database function"""
+        #TODO avoid select *
         query = text("""
             SELECT * FROM search_manga(:query, :limit_count, :offset_count)
         """)
-        
+
         result = await db.execute(query, {
             'query': params.query,
             'limit_count': params.limit,
@@ -280,24 +283,25 @@ class MangaCRUD:
             relevance_score=row.bm25_score
         ) for row in result.fetchall()]
 
+
     @staticmethod
     async def advanced_search_manga(db: AsyncSession, params: SearchParams) -> List[Dict[str, Any]]:
         """Advanced search with filters using database function"""
-        query = text("""
-            SELECT * FROM advanced_manga_search(
-                search_text := :search_text,
-                min_rating := :min_rating,
-                max_rating := :max_rating,
-                year_from := :year_from,
-                year_to := :year_to,
-                genres := :genres,
-                status_filter := :status_filter,
-                content_rating_filter := :content_rating_filter,
-                limit_count := :limit_count,
-                offset_count := :offset_count
-            )
-        """)
-        
+        #TODO avoid select *
+        q_str = """SELECT * FROM advanced_manga_search(
+    search_text := :search_text,
+    min_rating := :min_rating,
+    max_rating := :max_rating,
+    year_from := :year_from,
+    year_to := :year_to,
+    genres := :genres,
+    status_filter := :status_filter,
+    content_rating_filter := :content_rating_filter,
+    limit_count := :limit_count,
+    offset_count := :offset_count
+)"""
+        query = text(q_str)
+
         result = await db.execute(query, {
             'search_text': params.query or '',
             'min_rating': params.min_rating or 0,
@@ -310,13 +314,13 @@ class MangaCRUD:
             'limit_count': params.limit,
             'offset_count': params.offset
         })
-        
+
         return [dict(row._mapping) for row in result.fetchall()]
 
 
 class AuthorCRUD:
     """CRUD operations for Author entity"""
-    
+
     @staticmethod
     async def get_authors(
         db: AsyncSession, 
