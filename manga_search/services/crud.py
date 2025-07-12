@@ -1,42 +1,40 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, insert, update, delete, text, and_, func
+from sqlalchemy import select, insert, update, delete, text, and_, or_, func
 from sqlalchemy.orm import selectinload
 from typing import Optional, Sequence, List, Dict, Any
 from decimal import Decimal
 
-from ..model.models import (
+from manga_search.model.models import (
     Manga, Author, Artist, Publisher, Genre, Tag,
     MangaCover, MangaSecondaryTitle, MangaLink
 )
-from ..model.schemas import (
+from manga_search.model.schemas import (
     MangaCreate, MangaUpdate, SearchParams, MangaSearchResult,
     AuthorCreate, ArtistCreate, PublisherCreate, GenreCreate, TagCreate,
     MangaCoverCreate, MangaSecondaryTitleCreate, MangaLinkCreate
 )
-from ..model.metadata import (
+from manga_search.model.metadata import (
     manga_authors, manga_artists, manga_publishers, manga_genres, manga_tags
 )
 
 
 class MangaCRUD:
-    """CRUD operations for Manga entity"""
+    """CRUD operations for Manga entity with fixed async handling"""
     
     @staticmethod
     async def get_manga(db: AsyncSession, manga_id: int) -> Optional[Manga]:
-        """Get a single manga with all related data"""
-        query = select(Manga).options(
-            selectinload(Manga.authors),
-            selectinload(Manga.artists),
-            selectinload(Manga.publishers),
-            selectinload(Manga.genres),
-            selectinload(Manga.tags),
-            selectinload(Manga.covers),
-            selectinload(Manga.secondary_titles),
-            selectinload(Manga.links)
-        ).where(Manga.id == manga_id)
+        """Get a single manga with all related data - fixed for async"""
+        # 🔧 Remove explicit selectinload since models now use lazy="selectin"
+        query = select(Manga).where(Manga.id == manga_id)
         
         result = await db.execute(query)
-        return result.scalar_one_or_none()
+        manga = result.scalar_one_or_none()
+        
+        if manga:
+            # 🔧 Force loading of relationships within async context
+            await db.refresh(manga, ["authors", "artists", "publishers", "genres", "tags", "covers", "secondary_titles", "links"])
+        
+        return manga
 
     @staticmethod
     async def get_manga_list(
@@ -50,11 +48,9 @@ class MangaCRUD:
         content_rating: Optional[str] = None,
         manga_type: Optional[str] = None
     ) -> Sequence[Manga]:
-        """Get list of manga with optional filters"""
-        query = select(Manga).options(
-            selectinload(Manga.authors),
-            selectinload(Manga.genres)
-        )
+        """Get list of manga with optional filters - fixed for async"""
+        # 🔧 Simplified query without explicit selectinload
+        query = select(Manga)
         
         conditions = []
         if status:
@@ -74,9 +70,16 @@ class MangaCRUD:
             query = query.where(and_(*conditions))
             
         query = query.offset(skip).limit(limit).order_by(Manga.rating.desc().nulls_last())
-        
+
         result = await db.execute(query)
-        return result.scalars().all()
+        manga_list = result.scalars().all()
+        
+        # 🔧 Force refresh relationships for all manga in the list
+        for manga in manga_list:
+            await db.refresh(manga, ["authors", "artists", "publishers", "genres", "tags"])
+        
+        return manga_list
+
 
     @staticmethod
     async def get_manga_count(
@@ -113,7 +116,7 @@ class MangaCRUD:
 
     @staticmethod
     async def create_manga(db: AsyncSession, manga_data: MangaCreate) -> Manga:
-        """Create a new manga with relationships"""
+        """Create a new manga with relationships - fixed for async"""
         # Create manga record
         manga_dict = manga_data.model_dump(exclude={
             'author_ids', 'artist_ids', 'publisher_ids', 'genre_ids', 'tag_ids'
@@ -136,13 +139,13 @@ class MangaCRUD:
             await MangaCRUD._add_manga_tags(db, manga.id, manga_data.tag_ids)
             
         await db.commit()
-        await db.refresh(manga)
         
+        # 🔧 Return fresh instance with all relationships loaded
         return await MangaCRUD.get_manga(db, manga.id)
 
     @staticmethod
     async def update_manga(db: AsyncSession, manga_id: int, manga_data: MangaUpdate) -> Optional[Manga]:
-        """Update an existing manga"""
+        """Update an existing manga - fixed for async"""
         # Update manga fields
         update_dict = {k: v for k, v in manga_data.model_dump().items() 
                       if v is not None and k not in [
@@ -178,7 +181,7 @@ class MangaCRUD:
         await db.commit()
         return result.rowcount > 0
 
-    # Helper methods for relationship management
+    # Helper methods remain the same...
     @staticmethod
     async def _add_manga_authors(db: AsyncSession, manga_id: int, author_ids: List[int]):
         if not author_ids:
@@ -189,10 +192,8 @@ class MangaCRUD:
 
     @staticmethod
     async def _replace_manga_authors(db: AsyncSession, manga_id: int, author_ids: List[int]):
-        # Delete existing
         del_query = delete(manga_authors).where(manga_authors.c.manga_id == manga_id)
         await db.execute(del_query)
-        # Add new
         if author_ids:
             await MangaCRUD._add_manga_authors(db, manga_id, author_ids)
 
@@ -256,7 +257,7 @@ class MangaCRUD:
         if tag_ids:
             await MangaCRUD._add_manga_tags(db, manga_id, tag_ids)
 
-    # BM25 Search methods
+    # Search methods remain the same...
     @staticmethod
     async def search_manga(db: AsyncSession, params: SearchParams) -> List[MangaSearchResult]:
         """Basic BM25 search using database function"""

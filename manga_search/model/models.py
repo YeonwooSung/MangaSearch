@@ -1,12 +1,57 @@
 from sqlalchemy import (
     Column, Integer, BigInteger, String, Text, Boolean, 
-    DECIMAL, Float, TIMESTAMP, ForeignKey, JSON
+    DECIMAL, Float, TIMESTAMP, ForeignKey, JSON, Table, MetaData
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, declarative_base
 from sqlalchemy.sql import func
 
-from manga_search.infra.database import Base
+# Create metadata and base
+metadata = MetaData()
+Base = declarative_base(metadata=metadata)
 
+# ============================================================================
+# ASSOCIATION TABLES (Many-to-Many Relationships)
+# ============================================================================
+
+# 🔧 Define association tables BEFORE model classes
+manga_authors = Table(
+    'manga_authors',
+    Base.metadata,
+    Column('manga_id', BigInteger, ForeignKey('manga.id', ondelete='CASCADE'), primary_key=True),
+    Column('author_id', Integer, ForeignKey('authors.id', ondelete='CASCADE'), primary_key=True)
+)
+
+manga_artists = Table(
+    'manga_artists',
+    Base.metadata,
+    Column('manga_id', BigInteger, ForeignKey('manga.id', ondelete='CASCADE'), primary_key=True),
+    Column('artist_id', Integer, ForeignKey('artists.id', ondelete='CASCADE'), primary_key=True)
+)
+
+manga_publishers = Table(
+    'manga_publishers',
+    Base.metadata,
+    Column('manga_id', BigInteger, ForeignKey('manga.id', ondelete='CASCADE'), primary_key=True),
+    Column('publisher_id', Integer, ForeignKey('publishers.id', ondelete='CASCADE'), primary_key=True)
+)
+
+manga_genres = Table(
+    'manga_genres',
+    Base.metadata,
+    Column('manga_id', BigInteger, ForeignKey('manga.id', ondelete='CASCADE'), primary_key=True),
+    Column('genre_id', Integer, ForeignKey('genres.id', ondelete='CASCADE'), primary_key=True)
+)
+
+manga_tags = Table(
+    'manga_tags',
+    Base.metadata,
+    Column('manga_id', BigInteger, ForeignKey('manga.id', ondelete='CASCADE'), primary_key=True),
+    Column('tag_id', Integer, ForeignKey('tags.id', ondelete='CASCADE'), primary_key=True)
+)
+
+# ============================================================================
+# MODEL CLASSES
+# ============================================================================
 
 class Manga(Base):
     __tablename__ = "manga"
@@ -33,15 +78,57 @@ class Manga(Base):
     created_at = Column(TIMESTAMP(timezone=True), default=func.current_timestamp())
     updated_at = Column(TIMESTAMP(timezone=True), default=func.current_timestamp())
 
-    # Relationships
-    authors = relationship("Author", secondary="manga_authors", back_populates="manga")
-    artists = relationship("Artist", secondary="manga_artists", back_populates="manga")
-    publishers = relationship("Publisher", secondary="manga_publishers", back_populates="manga")
-    genres = relationship("Genre", secondary="manga_genres", back_populates="manga")
-    tags = relationship("Tag", secondary="manga_tags", back_populates="manga")
-    covers = relationship("MangaCover", back_populates="manga")
-    secondary_titles = relationship("MangaSecondaryTitle", back_populates="manga")
-    links = relationship("MangaLink", back_populates="manga")
+    # 🔧 Use Table objects directly (not strings) for secondary parameter
+    authors = relationship(
+        "Author", 
+        secondary=manga_authors,  # ✅ Table object, not string
+        back_populates="manga",
+        lazy="selectin"
+    )
+    artists = relationship(
+        "Artist", 
+        secondary=manga_artists,
+        back_populates="manga",
+        lazy="selectin"
+    )
+    publishers = relationship(
+        "Publisher", 
+        secondary=manga_publishers,
+        back_populates="manga",
+        lazy="selectin"
+    )
+    genres = relationship(
+        "Genre", 
+        secondary=manga_genres,
+        back_populates="manga",
+        lazy="selectin"
+    )
+    tags = relationship(
+        "Tag", 
+        secondary=manga_tags,
+        back_populates="manga",
+        lazy="selectin"
+    )
+    
+    # One-to-many relationships
+    covers = relationship(
+        "MangaCover", 
+        back_populates="manga",
+        lazy="selectin",
+        cascade="all, delete-orphan"
+    )
+    secondary_titles = relationship(
+        "MangaSecondaryTitle", 
+        back_populates="manga",
+        lazy="selectin",
+        cascade="all, delete-orphan"
+    )
+    links = relationship(
+        "MangaLink", 
+        back_populates="manga",
+        lazy="selectin",
+        cascade="all, delete-orphan"
+    )
 
 class Author(Base):
     __tablename__ = "authors"
@@ -50,7 +137,13 @@ class Author(Base):
     name = Column(Text, nullable=False, unique=True)
     created_at = Column(TIMESTAMP(timezone=True), default=func.current_timestamp())
 
-    manga = relationship("Manga", secondary="manga_authors", back_populates="authors")
+    # Many-to-many back reference
+    manga = relationship(
+        "Manga", 
+        secondary=manga_authors,
+        back_populates="authors",
+        lazy="selectin"
+    )
 
 class Artist(Base):
     __tablename__ = "artists"
@@ -59,7 +152,12 @@ class Artist(Base):
     name = Column(Text, nullable=False, unique=True)
     created_at = Column(TIMESTAMP(timezone=True), default=func.current_timestamp())
 
-    manga = relationship("Manga", secondary="manga_artists", back_populates="artists")
+    manga = relationship(
+        "Manga", 
+        secondary=manga_artists,
+        back_populates="artists",
+        lazy="selectin"
+    )
 
 class Publisher(Base):
     __tablename__ = "publishers"
@@ -68,7 +166,12 @@ class Publisher(Base):
     name = Column(Text, nullable=False, unique=True)
     created_at = Column(TIMESTAMP(timezone=True), default=func.current_timestamp())
 
-    manga = relationship("Manga", secondary="manga_publishers", back_populates="publishers")
+    manga = relationship(
+        "Manga", 
+        secondary=manga_publishers,
+        back_populates="publishers",
+        lazy="selectin"
+    )
 
 class Genre(Base):
     __tablename__ = "genres"
@@ -77,7 +180,12 @@ class Genre(Base):
     name = Column(Text, nullable=False, unique=True)
     created_at = Column(TIMESTAMP(timezone=True), default=func.current_timestamp())
 
-    manga = relationship("Manga", secondary="manga_genres", back_populates="genres")
+    manga = relationship(
+        "Manga", 
+        secondary=manga_genres,
+        back_populates="genres",
+        lazy="selectin"
+    )
 
 class Tag(Base):
     __tablename__ = "tags"
@@ -86,7 +194,12 @@ class Tag(Base):
     name = Column(Text, nullable=False, unique=True)
     created_at = Column(TIMESTAMP(timezone=True), default=func.current_timestamp())
 
-    manga = relationship("Manga", secondary="manga_tags", back_populates="tags")
+    manga = relationship(
+        "Manga", 
+        secondary=manga_tags,
+        back_populates="tags",
+        lazy="selectin"
+    )
 
 class MangaCover(Base):
     __tablename__ = "manga_covers"

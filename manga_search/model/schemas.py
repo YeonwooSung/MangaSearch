@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List, Any
 from datetime import datetime
 from decimal import Decimal
@@ -7,25 +7,24 @@ from decimal import Decimal
 class BaseSchema(BaseModel):
     model_config = ConfigDict(
         from_attributes=True,
-        json_encoders={
-            datetime: lambda v: v.isoformat(),
-            Decimal: lambda v: float(v) if v is not None else None
-        },
+        # 🔧 Critical: Disable arbitrary types validation for SQLAlchemy objects
+        arbitrary_types_allowed=True,
         # Use orjson for better performance
-        json_schema_extra={
-            "example": {}
+        json_encoders={
+            datetime: lambda v: v.isoformat() if v else None,
+            Decimal: lambda v: float(v) if v is not None else None
         }
     )
 
-
-# Basic schemas
+# Basic schemas without circular references
 class AuthorBase(BaseSchema):
     name: str
 
 class AuthorCreate(AuthorBase):
     pass
 
-class Author(AuthorBase):
+class AuthorSimple(AuthorBase):
+    """Simple author schema without manga relationship to avoid circular refs"""
     id: int
     created_at: datetime
 
@@ -35,7 +34,8 @@ class ArtistBase(BaseSchema):
 class ArtistCreate(ArtistBase):
     pass
 
-class Artist(ArtistBase):
+class ArtistSimple(ArtistBase):
+    """Simple artist schema without manga relationship"""
     id: int
     created_at: datetime
 
@@ -45,7 +45,8 @@ class PublisherBase(BaseSchema):
 class PublisherCreate(PublisherBase):
     pass
 
-class Publisher(PublisherBase):
+class PublisherSimple(PublisherBase):
+    """Simple publisher schema without manga relationship"""
     id: int
     created_at: datetime
 
@@ -55,7 +56,8 @@ class GenreBase(BaseSchema):
 class GenreCreate(GenreBase):
     pass
 
-class Genre(GenreBase):
+class GenreSimple(GenreBase):
+    """Simple genre schema without manga relationship"""
     id: int
     created_at: datetime
 
@@ -65,7 +67,8 @@ class TagBase(BaseSchema):
 class TagCreate(TagBase):
     pass
 
-class Tag(TagBase):
+class TagSimple(TagBase):
+    """Simple tag schema without manga relationship"""
     id: int
     created_at: datetime
 
@@ -108,7 +111,7 @@ class MangaLink(MangaLinkBase):
     manga_id: int
     created_at: datetime
 
-# Manga schemas
+# Main Manga schemas
 class MangaBase(BaseSchema):
     title: str
     native_title: Optional[str] = None
@@ -127,11 +130,11 @@ class MangaBase(BaseSchema):
     total_chapters: Optional[str] = None
 
 class MangaCreate(MangaBase):
-    author_ids: Optional[List[int]] = []
-    artist_ids: Optional[List[int]] = []
-    publisher_ids: Optional[List[int]] = []
-    genre_ids: Optional[List[int]] = []
-    tag_ids: Optional[List[int]] = []
+    author_ids: Optional[List[int]] = Field(default_factory=list)
+    artist_ids: Optional[List[int]] = Field(default_factory=list)
+    publisher_ids: Optional[List[int]] = Field(default_factory=list)
+    genre_ids: Optional[List[int]] = Field(default_factory=list)
+    tag_ids: Optional[List[int]] = Field(default_factory=list)
 
 class MangaUpdate(BaseSchema):
     title: Optional[str] = None
@@ -156,21 +159,47 @@ class MangaUpdate(BaseSchema):
     tag_ids: Optional[List[int]] = None
 
 class Manga(MangaBase):
+    """Full manga schema with all relationships"""
     id: int
     state: str
     merged_with: Optional[int] = None
     last_updated_at: datetime
     created_at: datetime
     updated_at: datetime
-    authors: List[Author] = []
-    artists: List[Artist] = []
-    publishers: List[Publisher] = []
-    genres: List[Genre] = []
-    tags: List[Tag] = []
-    covers: List[MangaCover] = []
-    secondary_titles: List[MangaSecondaryTitle] = []
-    links: List[MangaLink] = []
+    
+    # 🔧 Use simple schemas to avoid circular references and lazy loading issues
+    authors: List[AuthorSimple] = Field(default_factory=list)
+    artists: List[ArtistSimple] = Field(default_factory=list)
+    publishers: List[PublisherSimple] = Field(default_factory=list)
+    genres: List[GenreSimple] = Field(default_factory=list)
+    tags: List[TagSimple] = Field(default_factory=list)
+    covers: List[MangaCover] = Field(default_factory=list)
+    secondary_titles: List[MangaSecondaryTitle] = Field(default_factory=list)
+    links: List[MangaLink] = Field(default_factory=list)
 
+# Full schemas with manga relationships (for detailed views)
+class Author(AuthorSimple):
+    """Full author schema with manga relationship (for detailed author view)"""
+    manga: List[MangaBase] = Field(default_factory=list)
+
+class Artist(ArtistSimple):
+    """Full artist schema with manga relationship"""
+    manga: List[MangaBase] = Field(default_factory=list)
+
+class Publisher(PublisherSimple):
+    """Full publisher schema with manga relationship"""
+    manga: List[MangaBase] = Field(default_factory=list)
+
+class Genre(GenreSimple):
+    """Full genre schema with manga relationship"""
+    manga: List[MangaBase] = Field(default_factory=list)
+
+class Tag(TagSimple):
+    """Full tag schema with manga relationship"""
+    manga: List[MangaBase] = Field(default_factory=list)
+
+
+# Search result schemas
 class MangaSearchResult(BaseSchema):
     manga_id: int
     title: str
