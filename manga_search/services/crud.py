@@ -3,6 +3,7 @@ from sqlalchemy import select, insert, update, delete, text, and_, func
 from sqlalchemy.orm import selectinload
 from typing import Optional, Sequence, List, Dict, Any
 from decimal import Decimal
+from time import time
 
 from manga_search.model.models import (
     Manga, Author, Artist, Publisher, Genre, Tag,
@@ -11,7 +12,8 @@ from manga_search.model.models import (
 from manga_search.model.schemas import (
     MangaCreate, MangaUpdate, SearchParams, MangaSearchResult,
     AuthorCreate, ArtistCreate, PublisherCreate, GenreCreate, TagCreate,
-    MangaCoverCreate, MangaSecondaryTitleCreate, MangaLinkCreate
+    MangaCoverCreate, MangaSecondaryTitleCreate, MangaLinkCreate,
+    FuzzySearchParams, FuzzySearchResult
 )
 from manga_search.model.metadata import (
     manga_authors, manga_artists, manga_publishers, manga_genres, manga_tags
@@ -315,6 +317,124 @@ class MangaCRUD:
             'offset_count': params.offset
         })
 
+        return [dict(row._mapping) for row in result.fetchall()]
+
+
+    @staticmethod
+    async def fuzzy_search_suggestions(
+        db: AsyncSession,
+        query: str,
+        limit: int = 10,
+        fuzzy_distance: int = 2
+    ) -> List[Dict[str, Any]]:
+        """
+        Generate fuzzy search suggestions for auto-complete
+        """
+        suggestion_query = text("""
+            SELECT DISTINCT
+                m.title,
+                m.native_title,
+                m.romanized_title,
+                paradedb.score(m.id) as relevance_score,
+                similarity(m.title, :query) as title_similarity
+            FROM manga m
+            WHERE 
+                id @@@ paradedb.match('title_search', :query, distance => :fuzzy_distance)
+            ORDER BY 
+                relevance_score DESC,
+                title_similarity DESC
+            LIMIT :limit
+        """)
+
+        s1 =time()
+        result = await db.execute(suggestion_query, {
+            'query': query,
+            'fuzzy_distance': fuzzy_distance,
+            'limit': limit
+        })
+        s2 = time()
+        print(f"Fuzzy search suggestions executed in {s2 - s1:.4f} seconds")
+
+        suggestions = []
+        for row in result.fetchall():
+            suggestion = {
+                'title': row.title,
+                'native_title': row.native_title,
+                'romanized_title': row.romanized_title,
+                'relevance_score': row.relevance_score,
+                'similarity_score': row.title_similarity
+            }
+            
+            # Create suggestion text (prefer title, fallback to native/romanized)
+            suggestion_text = row.title
+            if row.native_title and row.native_title != row.title:
+                suggestion_text += f" ({row.native_title})"
+            elif row.romanized_title and row.romanized_title != row.title:
+                suggestion_text += f" ({row.romanized_title})"
+                
+            suggestion['suggestion_text'] = suggestion_text
+            suggestions.append(suggestion)
+        
+        return suggestions
+
+
+    @staticmethod
+    async def fuzzy_search_by_field(
+        db: AsyncSession,
+        field: str,
+        query: str,
+        fuzzy_distance: int = 2,
+        limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """
+        Perform fuzzy search on a specific field
+        Supported fields: title, description, search_text
+        """
+
+        # Validate field
+        valid_fields = ['title', 'description', 'search_text', 'title_search']
+        if field not in valid_fields:
+            raise ValueError(f"Invalid field '{field}'. Must be one of: {valid_fields}")
+
+        # Map field to actual database column
+        field_mapping = {
+            'title': 'title_search',
+            'description': 'description',
+            'search_text': 'search_text',
+            'title_search': 'title_search'
+        }
+
+        db_field = field_mapping[field]
+
+        field_query = text(f"""
+            SELECT 
+                m.id as manga_id,
+                m.title,
+                m.native_title,
+                m.romanized_title,
+                COALESCE(SUBSTR(m.description, 1, 200), '') as description_snippet,
+                m.year,
+                m.rating,
+                m.status,
+                paradedb.score(m.id) as relevance_score,
+                -- Highlight matched text (basic implementation)
+                CASE 
+                    WHEN '{field}' = 'title' THEN m.title
+                    WHEN '{field}' = 'description' THEN COALESCE(SUBSTR(m.description, 1, 200), '')
+                    ELSE m.title
+                END as matched_text
+            FROM manga m
+            WHERE id @@@ paradedb.match('{db_field}', :query, distance => :fuzzy_distance)
+            ORDER BY paradedb.score(m.id) DESC
+            LIMIT :limit
+        """)
+
+        result = await db.execute(field_query, {
+            'query': query,
+            'fuzzy_distance': fuzzy_distance,
+            'limit': limit
+        })
+        
         return [dict(row._mapping) for row in result.fetchall()]
 
 

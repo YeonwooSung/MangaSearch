@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict, Field
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Literal
 from datetime import datetime
 from decimal import Decimal
 
@@ -219,3 +219,50 @@ class SearchParams(BaseSchema):
     genres: Optional[List[str]] = None
     status: Optional[str] = None
     content_rating: Optional[str] = None
+
+
+class FuzzySearchParams(BaseModel):
+    query: str
+    search_fields: Optional[List[Literal["title", "description", "all"]]] = Field(
+        default=["all"], 
+        description="Fields to search in: title, description, or all"
+    )
+    fuzzy_distance: Optional[int] = Field(
+        default=2, 
+        ge=0, 
+        le=5, 
+        description="Maximum edit distance for fuzzy matching (0-5)"
+    )
+    boost_exact_matches: bool = Field(
+        default=True, 
+        description="Boost exact matches in results"
+    )
+    min_similarity: Optional[float] = Field(
+        default=0.3, 
+        ge=0.0, 
+        le=1.0, 
+        description="Minimum similarity score (0.0-1.0)"
+    )
+    limit: int = Field(default=20, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+    
+    # Additional filters
+    min_rating: Optional[Decimal] = None
+    max_rating: Optional[Decimal] = None
+    year_from: Optional[int] = None
+    year_to: Optional[int] = None
+    status: Optional[str] = None
+    content_rating: Optional[str] = None
+
+class FuzzySearchResult(BaseModel):
+    manga_id: int
+    title: str
+    native_title: Optional[str]
+    romanized_title: Optional[str]
+    description: Optional[str]
+    year: Optional[int]
+    rating: Optional[Decimal]
+    status: Optional[str]
+    relevance_score: float
+    matched_fields: List[str]  # Which fields matched the query
+    similarity_score: Optional[float] = None

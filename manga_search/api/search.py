@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, Query
-from typing import List
+from fastapi import APIRouter, Depends, Query, HTTPException
+from typing import List, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
 from ..infra.database import get_db
-from ..model.schemas import SearchParams, MangaSearchResult
+from ..model.schemas import SearchParams, MangaSearchResult, FuzzySearchParams, FuzzySearchResult
 from ..services.crud import MangaCRUD
 
 
@@ -43,3 +43,38 @@ async def get_search_suggestions(
     
     result = await db.execute(sql, {'query': query, 'limit': limit})
     return [dict(row._mapping) for row in result.fetchall()]
+
+
+@router.get("/fuzzy/suggestions")
+async def get_fuzzy_suggestions(
+    query: str = Query(..., min_length=1, description="Search query for suggestions"),
+    limit: int = Query(10, ge=1, le=20, description="Maximum suggestions to return"),
+    fuzzy_distance: int = Query(2, ge=0, le=5, description="Fuzzy matching distance"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get fuzzy search suggestions for auto-complete
+    Handles typos and partial matches
+    """
+    if len(query.strip()) == 0:
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+    
+    return await MangaCRUD.fuzzy_search_suggestions(db, query, limit, fuzzy_distance)
+
+
+@router.get("/fuzzy/field/{field}")
+async def fuzzy_search_by_field(
+    field: Literal["title", "description", "search_text"],
+    query: str = Query(..., min_length=1),
+    fuzzy_distance: int = Query(2, ge=0, le=5),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Perform fuzzy search on a specific field
+    Useful for targeted searches with typo tolerance
+    """
+    try:
+        return await MangaCRUD.fuzzy_search_by_field(db, field, query, fuzzy_distance, limit)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
